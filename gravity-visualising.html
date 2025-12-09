@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gyro Physics HUD</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0d0d0d; font-family: 'Courier New', monospace; }
+        canvas { display: block; }
+        #start-btn {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 15px 30px; font-size: 16px; font-weight: bold;
+            background: #00ff41; color: #000; border: none;
+            cursor: pointer; z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <button id="start-btn">INITIATE SYSTEM</button>
+    <canvas id="canvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const startBtn = document.getElementById('start-btn');
+
+    let width, height;
+    function resize() {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // PHYSICS VARS
+    let x = width / 2, y = height / 2;
+    let vx = 0, vy = 0;
+    let ax = 0, ay = 0;
+    const radius = 35;
+    const damping = 0.8;
+    const gravityStrength = 0.8;
+
+    // DEFORMATION VARS
+    let scaleX = 1, scaleY = 1;
+    let isRunning = false;
+
+    // SENSOR DATA FOR HUD
+    let rawBeta = 0, rawGamma = 0;
+
+    startBtn.addEventListener('click', () => {
+        startBtn.style.display = 'none';
+        isRunning = true;
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+            DeviceOrientationEvent.requestPermission().then(permissionState => {
+                if (permissionState === 'granted') window.addEventListener('deviceorientation', handleGyro);
+            });
+        } else {
+            window.addEventListener('deviceorientation', handleGyro);
+        }
+        animate();
+    });
+
+    function handleGyro(event) {
+        rawBeta = event.beta || 0;
+        rawGamma = event.gamma || 0;
+        
+        // Map tilt to acceleration
+        ay = (rawBeta / 90) * gravityStrength;
+        ax = (rawGamma / 90) * gravityStrength;
+    }
+
+    function applyDeformation(speed, isVertical) {
+        let deformation = Math.min(Math.abs(speed) * 0.03, 0.4);
+        if (isVertical) { scaleY = 1 - deformation; scaleX = 1 + deformation; } 
+        else { scaleX = 1 - deformation; scaleY = 1 + deformation; }
+    }
+
+    function drawHUD() {
+        // 1. TEXT DATA (Top Left)
+        ctx.fillStyle = '#00ff41'; // Hacker Green
+        ctx.font = '14px Courier New';
+        ctx.fillText(`GYRO_X (Gamma): ${rawGamma.toFixed(1)}°`, 20, 30);
+        ctx.fillText(`GYRO_Y (Beta) : ${rawBeta.toFixed(1)}°`, 20, 50);
+        ctx.fillText(`GRAVITY VEC : [${ax.toFixed(2)}, ${ay.toFixed(2)}]`, 20, 70);
+
+        // 2. GRAVITY VISUALIZER (Center of Screen)
+        // Draws a line showing which way "Down" is currently pointing
+        const centerX = width / 2;
+        const centerY = height / 2;
+        
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.lineWidth = 2;
+        ctx.arc(centerX, centerY, 100, 0, Math.PI * 2); // Compass Circle
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.strokeStyle = '#ff0055';
+        ctx.lineWidth = 4;
+        ctx.moveTo(centerX, centerY);
+        // The line points in the direction of the tilt
+        ctx.lineTo(centerX + ax * 200, centerY + ay * 200);
+        ctx.stroke();
+        
+        // Small label for the vector
+        ctx.fillStyle = '#ff0055';
+        ctx.fillText("GRAVITY", centerX + ax * 200 + 10, centerY + ay * 200);
+    }
+
+    function animate() {
+        if (!isRunning) return;
+        requestAnimationFrame(animate);
+
+        // Clear screen
+        ctx.fillStyle = '#0d0d0d'; 
+        ctx.fillRect(0, 0, width, height);
+
+        // Update Physics
+        vx += ax; vy += ay;
+        x += vx; y += vy;
+
+        // Collisions
+        if (y + radius > height) { y = height - radius; applyDeformation(vy, true); vy = -vy * damping; }
+        else if (y - radius < 0) { y = radius; applyDeformation(vy, true); vy = -vy * damping; }
+        if (x + radius > width) { x = width - radius; applyDeformation(vx, false); vx = -vx * damping; }
+        else if (x - radius < 0) { x = radius; applyDeformation(vx, false); vx = -vx * damping; }
+
+        // Relax Deformation
+        scaleX += (1 - scaleX) * 0.1;
+        scaleY += (1 - scaleY) * 0.1;
+
+        // Draw HUD Layer (Behind Ball)
+        drawHUD();
+
+        // Draw Ball
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scaleX, scaleY);
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#00ff41';
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#00ff41';
+        ctx.fill();
+        ctx.restore();
+    }
+</script>
+</body>
+</html>
